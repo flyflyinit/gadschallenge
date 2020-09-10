@@ -1,0 +1,144 @@
+Working with Virtual Machines LAB --------------------------------------------
+
+
+Task 1: Create the VM
+
+gcloud beta compute --project=vernal-dispatch-285909 instances create mc-server --zone=us-central1-a --machine-type=e2-medium --subnet=default --address=35.222.196.241 --network-tier=PREMIUM --maintenance-policy=MIGRATE --service-account=410424090952-compute@developer.gserviceaccount.com --scopes=https://www.googleapis.com/auth/servicecontrol,https://www.googleapis.com/auth/service.management.readonly,https://www.googleapis.com/auth/logging.write,https://www.googleapis.com/auth/monitoring.write,https://www.googleapis.com/auth/trace.append,https://www.googleapis.com/auth/devstorage.read_write --tags=minecraft-server --image=debian-10-buster-v20200902 --image-project=debian-cloud --boot-disk-size=10GB --boot-disk-type=pd-standard --boot-disk-device-name=mc-server --create-disk=mode=rw,size=50,type=projects/vernal-dispatch-285909/zones/us-central1-a/diskTypes/pd-ssd,name=minecraft-disk,device-name=minecraft-disk --no-shielded-secure-boot --no-shielded-vtpm --no-shielded-integrity-monitoring --reservation-affinity=any
+
+
+
+
+
+
+Task 2: Prepare the data disk
+
+
+Create a directory and format and mount the disk :
+
+gcloud compute ssh mc-server --zone us-central1-a --tunnel-through-iap
+
+sudo mkdir -p /home/minecraft
+
+sudo mkfs.ext4 -F -E lazy_itable_init=0,lazy_journal_init=0,discard /dev/disk/by-id/google-minecraft-disk
+
+sudo mount -o discard,defaults /dev/disk/by-id/google-minecraft-disk /home/minecraft
+
+
+
+ 
+
+
+
+Task 3: Install and run the application
+
+
+Install the Java Runtime Environment (JRE) and the Minecraft server :
+
+sudo apt-get update
+
+sudo apt-get install -y default-jre-headless
+
+cd /home/minecraft
+
+sudo apt-get install wget
+
+sudo wget https://launcher.mojang.com/v1/objects/d0d0fe2b1dc6ab4c65554cb734270872b72dadd6/server.jar
+
+
+
+Initialize the Minecraft server :
+
+sudo java -Xmx1024M -Xms1024M -jar server.jar nogui
+
+sudo ls -l
+
+sed -i s/eula=false/eula=true/g eula.txt					# replace eula=false with eula=true
+
+
+
+Create a virtual terminal screen to start the Minecraft server :
+
+sudo apt-get install -y screen
+
+sudo screen -S mcs java -Xmx1024M -Xms1024M -jar server.jar nogui
+
+
+
+Detach from the screen and close your SSH session :
+
+sudo screen -r mcs
+
+exit
+
+
+
+
+
+
+
+
+Task 4: Allow client traffic
+
+
+Create a firewall rule :
+
+gcloud compute --project=vernal-dispatch-285909 firewall-rules create minecraft-rule --direction=INGRESS --priority=1000 --network=default --action=ALLOW --rules=tcp:25565 --source-ranges=0.0.0.0/0 --target-tags=minecraft-server
+
+
+
+
+
+
+Task 5: Schedule regular backups
+
+Create a Cloud Storage bucket :
+
+export YOUR_BUCKET_NAME=vernal-dispatch-285909
+
+echo $YOUR_BUCKET_NAME
+
+gsutil mb gs://$YOUR_BUCKET_NAME-minecraft-backup
+
+gcloud compute ssh mc-server --zone us-central1-a --tunnel-through-iap
+
+cd /home/minecraft
+
+
+cat <<EOF > /home/minecraft/backup.sh
+#!/bin/bash
+screen -r mcs -X stuff '/save-all\n/save-off\n'
+/usr/bin/gsutil cp -R ${BASH_SOURCE%/*}/world gs://${YOUR_BUCKET_NAME}-minecraft-backup/$(date "+%Y%m%d-%H%M%S")-world
+screen -r mcs -X stuff '/save-on\n'
+EOF
+
+
+sudo chmod 755 /home/minecraft/backup.sh
+
+. /home/minecraft/backup.sh
+
+sudo crontab -e 			# and adding this line  "0 */4 * * * /home/minecraft/backup.sh"
+
+
+
+
+
+
+Task 6: Server maintenance
+
+
+Connect via SSH to the server, stop it and shut down the VM :
+
+sudo screen -r -X stuff '/stop\n'
+
+gcloud compute instances stop mc-server
+
+
+
+
+Automate server maintenance with startup and shutdown scripts :
+
+gcloud compute instances add-metadata mc-server --zone=us-central1-a --metadata-from-file=startup-script-url=https://storage.googleapis.com/cloud-training/archinfra/mcserver/startup.sh
+
+
+gcloud compute instances add-metadata mc-server --zone=us-central1-a --metadata-from-file=shutdown-script-url=https://storage.googleapis.com/cloud-training/archinfra/mcserver/shutdown.sh
+

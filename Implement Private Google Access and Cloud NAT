@@ -1,0 +1,122 @@
+Implement Private Google Access and Cloud NAT LAB ----------------------------------------------------------
+
+
+
+1-Task 1: Create The VM instance :
+
+
+Create a VPC network and firewall rules :
+
+gcloud compute networks create privatenet --project=vernal-dispatch-285909 --subnet-mode=custom --bgp-routing-mode=regional
+
+gcloud compute networks subnets create privatenet-us --project=vernal-dispatch-285909 --range=10.130.0.0/20 --network=privatenet --region=us-central1
+
+gcloud compute --project=vernal-dispatch-285909 firewall-rules create privatenet-allow-ssh --direction=INGRESS --priority=1000 --network=privatenet --action=ALLOW --rules=tcp:22 --source-ranges=35.235.240.0/20
+
+
+
+Create the VM instance with no public IP address :
+
+gcloud beta compute --project=vernal-dispatch-285909 instances create vm-internal --zone=us-central1-c --machine-type=n1-standard-1 --subnet=privatenet-us --no-address --maintenance-policy=MIGRATE --service-account=410424090952-compute@developer.gserviceaccount.com --scopes=https://www.googleapis.com/auth/devstorage.read_only,https://www.googleapis.com/auth/logging.write,https://www.googleapis.com/auth/monitoring.write,https://www.googleapis.com/auth/servicecontrol,https://www.googleapis.com/auth/service.management.readonly,https://www.googleapis.com/auth/trace.append --image=debian-10-buster-v20200902 --image-project=debian-cloud --boot-disk-size=10GB --boot-disk-type=pd-standard --boot-disk-device-name=vm-internal --no-shielded-secure-boot --no-shielded-vtpm --no-shielded-integrity-monitoring --reservation-affinity=any
+
+
+SSH to vm-internal to test the IAP tunnel :
+
+gcloud compute ssh vm-internal --zone us-central1-c --tunnel-through-iap
+ping -c 2 www.google.com
+exit
+
+
+
+
+
+
+
+
+
+2-Task 2: Enable Private Google Access :
+
+
+Create a Cloud Storage bucket :
+
+gsutil mb gs://vernal-dispatch-285909
+
+
+
+
+Copy an image file into your bucket :
+
+gsutil cp gs://cloud-training/gcpnet/private/access.svg gs://vernal-dispatch-285909
+
+
+
+
+Access the image from your VM instance :
+
+gsutil cp gs://vernal-dispatch-285909/*.svg .				# this should work
+
+gcloud compute ssh vm-internal --zone us-central1-c --tunnel-through-iap
+
+gsutil cp gs://vernal-dispatch-285909/*.svg .				# this should not work, beacause Private Google Access is disabled
+
+exit
+
+
+
+Enable Private Google Access :
+
+gcloud compute networks subnets update privatenet-us --region=us-central1 --enable-private-ip-google-access
+
+gcloud compute ssh vm-internal --zone us-central1-c --tunnel-through-iap
+
+gsutil cp gs://vernal-dispatch-285909/*.svg .				# this should work, beacause we enabled Private Google Access 
+
+exit
+
+
+
+
+
+
+
+
+
+3- Task 3: Configure a Cloud NAT gateway :
+
+gcloud compute ssh vm-internal --zone us-central1-c --tunnel-through-iap
+
+sudo apt-get update
+
+gcloud compute routers nats create nat-config --router=nat-router --auto-allocate-nat-external-ips --nat-all-subnet-ip-ranges
+
+
+
+
+
+
+
+
+
+
+4- Task 4: Configure and view logs with Cloud NAT Logging
+
+
+
+
+Enabling logging :
+
+
+gcloud compute routers nats update nat-config --enable-logging
+
+
+
+
+
+Generating logs :
+
+
+gcloud compute ssh vm-internal --zone us-central1-c --tunnel-through-iap
+
+sudo apt-get update
+
+exit
